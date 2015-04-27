@@ -574,7 +574,7 @@ class Connection(Connectable):
         else:
             return Transaction(self, self.__transaction)
 
-    def begin_nested(self):
+    def begin_nested(self, release_on_rollback=False):
         """Begin a nested transaction and return a transaction handle.
 
         The returned object is an instance of :class:`.NestedTransaction`.
@@ -585,6 +585,9 @@ class Connection(Connectable):
         still controls the overall ``commit`` or ``rollback`` of the
         transaction of a whole.
 
+        The ``release_on_rollback=True`` flag indicates that this
+        SAVEPOINT should be released even on rollback.
+
         See also :meth:`.Connection.begin`,
         :meth:`.Connection.begin_twophase`.
         """
@@ -594,7 +597,9 @@ class Connection(Connectable):
         if self.__transaction is None:
             self.__transaction = RootTransaction(self)
         else:
-            self.__transaction = NestedTransaction(self, self.__transaction)
+            self.__transaction = NestedTransaction(
+                self, self.__transaction,
+                release_on_rollback=release_on_rollback)
         return self.__transaction
 
     def begin_twophase(self, xid=None):
@@ -1601,14 +1606,18 @@ class NestedTransaction(Transaction):
 
     """
 
-    def __init__(self, connection, parent):
+    def __init__(self, connection, parent, release_on_rollback=False):
         super(NestedTransaction, self).__init__(connection, parent)
         self._savepoint = self.connection._savepoint_impl()
+        self._release_on_rollback = release_on_rollback
 
     def _do_rollback(self):
         if self.is_active:
             self.connection._rollback_to_savepoint_impl(
                 self._savepoint, self._parent)
+            if self._release_on_rollback:
+                self.connection._release_savepoint_impl(
+                    self._savepoint, self._parent)
 
     def _do_commit(self):
         if self.is_active:

@@ -166,11 +166,13 @@ class SessionTransaction(object):
 
     _rollback_exception = None
 
-    def __init__(self, session, parent=None, nested=False):
+    def __init__(self, session, parent=None, nested=False,
+                 release_on_rollback=False):
         self.session = session
         self._connections = {}
         self._parent = parent
         self.nested = nested
+        self._release_on_rollback = release_on_rollback
         self._state = ACTIVE
         if not parent and nested:
             raise sa_exc.InvalidRequestError(
@@ -231,10 +233,11 @@ class SessionTransaction(object):
         bind = self.session.get_bind(bindkey, **kwargs)
         return self._connection_for_bind(bind, execution_options)
 
-    def _begin(self, nested=False):
+    def _begin(self, nested=False, release_on_rollback=False):
         self._assert_active()
         return SessionTransaction(
-            self.session, self, nested=nested)
+            self.session, self, nested=nested,
+            release_on_rollback=release_on_rollback)
 
     def _iterate_parents(self, upto=None):
 
@@ -339,7 +342,7 @@ class SessionTransaction(object):
         if self.session.twophase and self._parent is None:
             transaction = conn.begin_twophase()
         elif self.nested:
-            transaction = conn.begin_nested()
+            transaction = conn.begin_nested(release_on_rollback=self._release_on_rollback)
         else:
             transaction = conn.begin()
 
@@ -691,7 +694,8 @@ class Session(_SessionClassMethods):
         """
         return {}
 
-    def begin(self, subtransactions=False, nested=False):
+    def begin(self, subtransactions=False, nested=False,
+              release_on_rollback=False):
         """Begin a transaction on this :class:`.Session`.
 
         If this Session is already within a transaction, either a plain
@@ -707,31 +711,37 @@ class Session(_SessionClassMethods):
         to calling :meth:`~.Session.begin_nested`. For documentation on
         SAVEPOINT transactions, please see :ref:`session_begin_nested`.
 
+        The ``release_on_rollback=True`` flag indicates that this
+        SAVEPOINT should be released even on rollback.
+
         """
         if self.transaction is not None:
             if subtransactions or nested:
                 self.transaction = self.transaction._begin(
-                    nested=nested)
+                    nested=nested, release_on_rollback=release_on_rollback)
             else:
                 raise sa_exc.InvalidRequestError(
                     "A transaction is already begun.  Use "
                     "subtransactions=True to allow subtransactions.")
         else:
             self.transaction = SessionTransaction(
-                self, nested=nested)
+                self, nested=nested, release_on_rollback=release_on_rollback)
         return self.transaction  # needed for __enter__/__exit__ hook
 
-    def begin_nested(self):
+    def begin_nested(self, release_on_rollback=False):
         """Begin a `nested` transaction on this Session.
 
         The target database(s) must support SQL SAVEPOINTs or a
         SQLAlchemy-supported vendor implementation of the idea.
 
+        The ``release_on_rollback=True`` flag indicates that this
+        SAVEPOINT should be released even on rollback.
+
         For documentation on SAVEPOINT
         transactions, please see :ref:`session_begin_nested`.
 
         """
-        return self.begin(nested=True)
+        return self.begin(nested=True, release_on_rollback=release_on_rollback)
 
     def rollback(self):
         """Rollback the current transaction in progress.

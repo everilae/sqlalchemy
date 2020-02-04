@@ -1895,6 +1895,33 @@ class MSSQLCompiler(compiler.SQLCompiler):
     def visit_empty_set_expr(self, type_):
         return "SELECT 1 WHERE 1!=1"
 
+    def visit_apply(self, apply, asfrom=False, from_linter=None, **kwargs):
+        """Render the APPLY operator specific to MSSQL.
+
+        It is somewhat akin to JOIN LATERAL in that it allows the right operand
+        to reference columns of the left operand.
+
+        """
+        if from_linter:
+            from_linter.edges.add((apply.left, apply.right))
+
+        if apply.isouter:
+            apply_type = " OUTER APPLY "
+        else:
+            apply_type = " CROSS APPLY "
+        return (
+            apply.left._compiler_dispatch(
+                self, asfrom=True, from_linter=from_linter, **kwargs
+            )
+            + apply_type
+            # Pass lateral=True here so that the compiler gives the special
+            # treatment of FROM objects to APPLY as well.
+            + apply.right._compiler_dispatch(
+                self, asfrom=True, from_linter=from_linter, lateral=True,
+                **kwargs
+            )
+        )
+
 
 class MSSQLStrictCompiler(MSSQLCompiler):
 

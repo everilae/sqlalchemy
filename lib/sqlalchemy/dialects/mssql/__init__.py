@@ -11,6 +11,7 @@ from . import mxodbc  # noqa
 from . import provision  # noqa
 from . import pymssql  # noqa
 from . import pyodbc  # noqa
+from .apply import Apply
 from .base import BIGINT
 from .base import BINARY
 from .base import BIT
@@ -43,6 +44,8 @@ from .base import UNIQUEIDENTIFIER
 from .base import VARBINARY
 from .base import VARCHAR
 from .base import XML
+from .ext import apply
+from .ext import outerapply
 
 
 base.dialect = dialect = pyodbc.dialect

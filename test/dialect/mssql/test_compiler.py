@@ -24,6 +24,7 @@ from sqlalchemy import update
 from sqlalchemy.dialects import mssql
 from sqlalchemy.dialects.mssql import mxodbc
 from sqlalchemy.dialects.mssql.base import try_cast
+from sqlalchemy.dialects.mssql.ext import apply, outerapply
 from sqlalchemy.sql import column
 from sqlalchemy.sql import quoted_name
 from sqlalchemy.sql import table
@@ -289,6 +290,53 @@ class CompileTest(fixtures.TestBase, AssertsCompiledSQL):
             "UPDATE [schema].sometable SET val="
             "[#other].newval FROM [schema].sometable, "
             "[#other] WHERE [schema].sometable.sym = [#other].sym",
+        )
+
+    def test_apply(self):
+        t1 = table("t1", column("c1"))
+        t2 = table("t2", column("c1"), column("c2"))
+        subq = select([t2.c.c2]).where(t2.c.c1 == t1.c.c1).subquery()
+        # See test_lateral.py as to why this is correct.
+        self.assert_compile(
+            apply(t1, subq),
+            "t1 CROSS APPLY (SELECT t2.c2 AS c2 FROM "
+            "t2, t1 WHERE t2.c1 = t1.c1) AS anon_1"
+        )
+        # In select context.
+        self.assert_compile(
+            select([t1, subq.c.c2]).select_from(apply(t1, subq)),
+            "SELECT t1.c1, anon_1.c2 FROM "
+            "t1 CROSS APPLY (SELECT t2.c2 AS c2 FROM "
+            "t2 WHERE t2.c1 = t1.c1) AS anon_1"
+        )
+
+    def test_apply_function(self):
+        t1 = table("t1", column("c1"))
+        stmt = apply(
+            t1,
+            func.foo(t1.c.c1, 1)
+        )
+        self.assert_compile(
+            stmt,
+            "t1 CROSS APPLY foo(t1.c1, :foo_1)"
+        )
+
+    def test_outerapply(self):
+        t1 = table("t1", column("c1"))
+        t2 = table("t2", column("c1"), column("c2"))
+        subq = select([t2.c.c2]).where(t2.c.c1 == t1.c.c1).subquery()
+        # See test_lateral.py as to why this is correct.
+        self.assert_compile(
+            outerapply(t1, subq),
+            "t1 OUTER APPLY (SELECT t2.c2 AS c2 FROM "
+            "t2, t1 WHERE t2.c1 = t1.c1) AS anon_1"
+        )
+        # In select context.
+        self.assert_compile(
+            select([t1, subq.c.c2]).select_from(outerapply(t1, subq)),
+            "SELECT t1.c1, anon_1.c2 FROM "
+            "t1 OUTER APPLY (SELECT t2.c2 AS c2 FROM "
+            "t2 WHERE t2.c1 = t1.c1) AS anon_1"
         )
 
     # TODO: not supported yet.
